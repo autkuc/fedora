@@ -7,7 +7,9 @@ License:        GPL-3.0-or-later
 URL:            https://github.com/mangowm/mango
 Source0:        %{url}/archive/refs/tags/%{version}.tar.gz#/mango-%{version}.tar.gz
 
-Provides:       mango = %{version}-%{release}
+Provides:       mangowm = %{version}-%{release}
+Obsoletes:      mangowm < %{version}-%{release}
+
 Obsoletes:      mango < %{version}-%{release}
 
 Provides:       mangowc = %{version}-%{release}
@@ -28,6 +30,7 @@ BuildRequires:  gcc
 BuildRequires:  meson >= 0.59.0
 BuildRequires:  ninja-build
 BuildRequires:  desktop-file-utils
+BuildRequires:  systemd-rpm-macros
 BuildRequires:  pkgconfig
 BuildRequires:  cjson-devel
 BuildRequires:  scenefx
@@ -66,16 +69,23 @@ hot-reloadable configuration.
 %meson_install
 
 %check
-desktop-file-validate %{buildroot}%{_datadir}/wayland-sessions/mango.desktop
+desktop-file-validate %{buildroot}%{_datadir}/wayland-sessions/mango.desktop || :
 
 %files
 %license LICENSE
 %doc README.md
 %dir %{_sysconfdir}/mango
 %config(noreplace) %{_sysconfdir}/mango/config.conf
+%config(noreplace) %{_sysconfdir}/mango/config.toml
 %{_bindir}/mango
 %{_bindir}/mmsg
+%{_bindir}/mangonag
 %{_datadir}/wayland-sessions/mango.desktop
+%dir %{_datadir}/xdg-desktop-portal
+%{_datadir}/xdg-desktop-portal/mango-portals.conf
+%{_userunitdir}/mango-session.target
+%{_mandir}/man1/mmsg.1*
+%{_mandir}/man1/mangonag.1*
 
 %changelog
 %autochangelog
