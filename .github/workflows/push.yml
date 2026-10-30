@@ -27,9 +27,6 @@ permissions:
 jobs:
   dispatch:
     runs-on: ubuntu-latest
-    if: |
-      (github.event_name == 'push' && github.ref_name == matrix.branch) ||
-      (github.event_name == 'workflow_dispatch' && (inputs.branch == 'all' || inputs.branch == matrix.branch || !inputs.branch))
     concurrency:
       group: push-${{ matrix.branch }}
       cancel-in-progress: false
@@ -38,16 +35,42 @@ jobs:
       matrix:
         branch: [unpatched, patched]
     steps:
+      - name: Filter Target Branch
+        id: filter
+        run: |
+          target="${{ matrix.branch }}"
+          event="${{ github.event_name }}"
+          req_branch="${{ github.event.inputs.branch }}"
+          ref="${{ github.ref_name }}"
+
+          if [ "$event" = "push" ]; then
+            if [ "$ref" = "$target" ]; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+            fi
+          elif [ "$event" = "workflow_dispatch" ]; then
+            if [ -z "$req_branch" ] || [ "$req_branch" = "all" ] || [ "$req_branch" = "$target" ]; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.filter.outputs.run == 'true'
         with:
           ref: ${{ matrix.branch }}
           fetch-depth: 0
 
       - name: Dispatch Synchronized COPR Builds
+        if: steps.filter.outputs.run == 'true'
         env:
           TARGET_BRANCH: ${{ matrix.branch }}
           EVENT_NAME: ${{ github.event_name }}
-          INPUT_PKG: ${{ inputs.package }}
+          INPUT_PKG: ${{ github.event.inputs.package }}
           BEFORE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.sha }}
           COPR_LOGIN: ${{ secrets.COPR_LOGIN }}
