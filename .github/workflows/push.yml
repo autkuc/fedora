@@ -5,8 +5,6 @@ on:
     branches:
       - unpatched
       - patched
-    paths:
-      - '*/*.spec'
   workflow_dispatch:
     inputs:
       branch:
@@ -26,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: push-${{ github.event.inputs.branch || github.ref_name }}
+  group: push-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -105,18 +103,20 @@ jobs:
           elif event_name == 'push':
               diff_cmd = ['git', 'diff-tree', '--no-commit-id', '--name-only', '-r', head_sha]
               if before_sha and not re.match(r'^0+$', before_sha):
-                  diff_cmd = ['git', 'diff', '--name-only', before_sha, head_sha]
+                  res_diff = subprocess.run(['git', 'diff', '--name-only', before_sha, head_sha], capture_output=True, text=True)
+                  if res_diff.returncode == 0 and res_diff.stdout.strip():
+                      diff_cmd = ['git', 'diff', '--name-only', before_sha, head_sha]
 
               res = subprocess.run(diff_cmd, capture_output=True, text=True)
               changed_files = res.stdout.splitlines()
               print(f"Files modified in push: {changed_files}")
               for f in changed_files:
                   parts = Path(f.strip()).parts
-                  if len(parts) >= 2 and parts[0] in all_pkgs:
+                  if len(parts) >= 1 and parts[0] in all_pkgs:
                       target_pkgs.add(parts[0])
 
               if not target_pkgs:
-                  print("No package spec files modified in this push. Exiting.")
+                  print("No package files modified in this push. Exiting.")
                   sys.exit(0)
           else:
               target_pkgs = set(all_pkgs)
