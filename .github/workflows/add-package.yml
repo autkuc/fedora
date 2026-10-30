@@ -7,6 +7,7 @@ on:
 permissions:
   contents: write
   issues: write
+  actions: write
 
 concurrency:
   group: add-package-${{ github.event.issue.number }}
@@ -96,7 +97,7 @@ jobs:
           repo_url = f"https://x-access-token:{os.environ['GH_TOKEN']}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
           subprocess.run(['git', 'remote', 'set-url', 'origin', repo_url], check=True)
           subprocess.run(['git', 'add', str(spec_dir)], check=True)
-          subprocess.run(['git', 'commit', '-m', f"feat: add {pkg} package ({target})"], check=True)
+          subprocess.run(['git', 'commit', '-m', f"feat: add {pkg} package ({target}) [skip ci]"], check=True)
 
           pushed = False
           for _ in range(3):
@@ -128,14 +129,14 @@ jobs:
                   '--commit', target,
                   '--subdir', pkg,
                   '--spec', f"{pkg}.spec",
-                  '--webhook-rebuild', 'on',
+                  '--webhook-rebuild', 'off',
                   copr_project
               ]
               subprocess.run(add_cmd, check=True)
 
-              build_cmd = ['copr-cli', 'build-package', '--name', pkg, '--nowait', copr_project]
-              subprocess.run(build_cmd, check=True)
-              copr_status = f"\n\nAutomated COPR registration in `{copr_project}` (branch `{target}`) completed and build has been dispatched."
+              print(f"Package registered in COPR. Delegating synchronized build dispatch to push.yml...")
+              subprocess.run(['gh', 'workflow', 'run', 'push.yml', '-f', f'branch={target}', '-f', f'package={pkg}'], check=False)
+              copr_status = f"\n\nAutomated COPR registration in `{copr_project}` (branch `{target}`) completed and synchronized build dispatched."
 
           comment = f"Successfully scaffolded package `{pkg}` on branch `{target}` at `{spec_file}`.{copr_status}"
           subprocess.run(['gh', 'issue', 'comment', issue_num, '--body', comment], check=True)

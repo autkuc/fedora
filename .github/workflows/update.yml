@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   sync:
@@ -24,16 +25,10 @@ jobs:
           ref: ${{ matrix.branch }}
           fetch-depth: 0
 
-      - name: Auto-Update Packages & Dispatch COPR Builds
+      - name: Auto-Update Packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_BRANCH: ${{ matrix.branch }}
-          COPR_LOGIN: ${{ secrets.COPR_LOGIN }}
-          COPR_USERNAME: ${{ secrets.COPR_USERNAME }}
-          COPR_TOKEN: ${{ secrets.COPR_TOKEN }}
-          COPR_PROJECT: ${{ secrets.COPR_PROJECT }}
-          COPR_PROJECT_UNPATCHED: ${{ secrets.COPR_PROJECT_UNPATCHED }}
-          COPR_PROJECT_PATCHED: ${{ secrets.COPR_PROJECT_PATCHED }}
         run: |
           python3 << 'EOF'
           import os, sys, re, json, urllib.request, subprocess
@@ -52,28 +47,6 @@ jobs:
                   if a != b:
                       return -1 if a < b else 1
               return -1 if len(s1) < len(s2) else (1 if len(s1) > len(s2) else 0)
-
-          def topo_sort(packages, deps):
-              in_degree = {p: 0 for p in packages}
-              graph = {p: [] for p in packages}
-              for p in packages:
-                  for d in deps.get(p, []):
-                      if d in packages:
-                          graph[d].append(p)
-                          in_degree[p] += 1
-              queue = [p for p in packages if in_degree[p] == 0]
-              sorted_pkgs = []
-              while queue:
-                  curr = queue.pop(0)
-                  sorted_pkgs.append(curr)
-                  for child in graph[curr]:
-                      in_degree[child] -= 1
-                      if in_degree[child] == 0:
-                          queue.append(child)
-              for p in packages:
-                  if p not in sorted_pkgs:
-                      sorted_pkgs.append(p)
-              return sorted_pkgs
 
           def query_upstream(pkg, names):
               for name in names:
@@ -100,7 +73,6 @@ jobs:
 
           updated_pkgs = []
           spec_map = {}
-          pkg_deps = {}
 
           for spec_path in spec_files:
               content = spec_path.read_text(encoding='utf-8')
@@ -111,18 +83,6 @@ jobs:
               if not m_ver:
                   continue
               cur_ver = m_ver.group(1).strip()
-
-              deps = set()
-              copr_dep = re.search(r'^#\s*copr:depends\s+(.*)', content, re.MULTILINE)
-              if copr_dep:
-                  deps.update(copr_dep.group(1).split())
-              for br in re.findall(r'^BuildRequires:\s*(.*)', content, re.MULTILINE):
-                  m_br = re.search(r'(?:pkgconfig\()?([a-zA-Z0-9._+-]+)', br)
-                  if m_br:
-                      tok = m_br.group(1)
-                      deps.add(tok)
-                      deps.add(tok.split('-')[0])
-              pkg_deps[pkg_name] = deps
 
               names_to_try = [pkg_name]
               m_upstream = re.search(r'^#\s*(?:upstream|anitya):\s*([^\s]+)', content, re.MULTILINE)
@@ -165,7 +125,7 @@ jobs:
           for pkg in updated_pkgs:
               subprocess.run(['git', 'add', str(spec_map[pkg])], check=True)
 
-          msg = f"chore: auto-update {', '.join(updated_pkgs)} ({target})"
+          msg = f"chore: auto-update {', '.join(updated_pkgs)} ({target}) [skip ci]"
           subprocess.run(['git', 'commit', '-m', msg], check=True)
 
           pushed = False
@@ -179,46 +139,6 @@ jobs:
           if not pushed:
               raise RuntimeError(f"Could not push to {target} after retries")
 
-          copr_login = os.environ.get('COPR_LOGIN')
-          copr_user = os.environ.get('COPR_USERNAME')
-          copr_token = os.environ.get('COPR_TOKEN')
-          copr_project = os.environ.get(f'COPR_PROJECT_{target.upper()}') or os.environ.get('COPR_PROJECT')
-
-          if not (copr_login and copr_user and copr_token and copr_project):
-              print("COPR credentials or project not configured. Skipping build dispatch.")
-              sys.exit(0)
-
-          copr_dir = Path.home() / '.config'
-          copr_dir.mkdir(parents=True, exist_ok=True)
-          (copr_dir / 'copr').write_text(f"[copr-cli]\nlogin = {copr_login}\nusername = {copr_user}\ntoken = {copr_token}\ncopr_url = https://copr.fedorainfracloud.org\n", encoding='utf-8')
-
-          subprocess.run(['pip', 'install', '--quiet', '--break-system-packages', 'copr-cli'], check=True)
-
-          batch_deps = {p: [d for d in pkg_deps.get(p, set()) if d in updated_pkgs] for p in updated_pkgs}
-          ordered_pkgs = topo_sort(updated_pkgs, batch_deps)
-          print(f"Build dispatch order: {ordered_pkgs}")
-
-          build_ids = {}
-          for pkg in ordered_pkgs:
-              cmd = ['copr-cli', 'build-package', '--name', pkg, '--nowait']
-              
-              after_id = None
-              for dep in batch_deps.get(pkg, []):
-                  if dep in build_ids:
-                      after_id = build_ids[dep]
-              
-              if after_id:
-                  cmd.extend(['--after-build-id', str(after_id)])
-              cmd.append(copr_project)
-
-              print(f"Dispatching build: {' '.join(cmd)}")
-              res = subprocess.run(cmd, capture_output=True, text=True)
-              print(res.stdout)
-              if res.stderr:
-                  print(res.stderr, file=sys.stderr)
-
-              m_id = re.search(r'Created builds:\s*(\d+)', res.stdout)
-              if m_id:
-                  build_ids[pkg] = m_id.group(1)
-                  print(f"Dispatched build {m_id.group(1)} for {pkg}")
+          print(f"Updates pushed to {target}. Delegating synchronized build dispatch to push.yml...")
+          subprocess.run(['gh', 'workflow', 'run', 'push.yml', '-f', f'branch={target}', '-f', 'package=all'], check=False)
           EOF
