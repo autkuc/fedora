@@ -1,0 +1,191 @@
+name: push
+
+on:
+  push:
+    branches:
+      - unpatched
+      - patched
+    paths:
+      - '*/*.spec'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Target branch'
+        required: false
+        default: 'unpatched'
+        type: choice
+        options:
+          - unpatched
+          - patched
+      package:
+        description: 'Specific package to build (or "all")'
+        required: false
+        default: 'all'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: push-${{ github.event.inputs.branch || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine Target Branch
+        id: target
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.branch }}" ]; then
+            echo "branch=${{ github.event.inputs.branch }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.branch }}
+          fetch-depth: 0
+
+      - name: Dispatch Synchronized COPR Builds
+        env:
+          TARGET_BRANCH: ${{ steps.target.outputs.branch }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PKG: ${{ github.event.inputs.package }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          COPR_LOGIN: ${{ secrets.COPR_LOGIN }}
+          COPR_USERNAME: ${{ secrets.COPR_USERNAME }}
+          COPR_TOKEN: ${{ secrets.COPR_TOKEN }}
+          COPR_PROJECT: ${{ secrets.COPR_PROJECT }}
+          COPR_PROJECT_UNPATCHED: ${{ secrets.COPR_PROJECT_UNPATCHED }}
+          COPR_PROJECT_PATCHED: ${{ secrets.COPR_PROJECT_PATCHED }}
+        run: |
+          python3 << 'EOF'
+          import os, sys, re, subprocess
+          from pathlib import Path
+
+          target = os.environ.get('TARGET_BRANCH', '').strip()
+          event_name = os.environ.get('EVENT_NAME', '')
+          input_pkg = (os.environ.get('INPUT_PKG') or 'all').strip()
+          before_sha = os.environ.get('BEFORE_SHA', '')
+          head_sha = os.environ.get('HEAD_SHA', '')
+
+          spec_files = sorted(list(Path('.').glob('*/*.spec')))
+          if not spec_files:
+              print(f"No spec files found on branch {target}. Exiting.")
+              sys.exit(0)
+
+          all_pkgs = [p.parent.name for p in spec_files]
+          spec_map = {p.parent.name: p for p in spec_files}
+          pkg_deps = {}
+
+          for pkg_name, spec_path in spec_map.items():
+              content = spec_path.read_text(encoding='utf-8')
+              deps = set()
+              copr_dep = re.search(r'^#\s*copr:depends\s+(.*)', content, re.MULTILINE)
+              if copr_dep:
+                  deps.update(copr_dep.group(1).split())
+              for br in re.findall(r'^BuildRequires:\s*(.*)', content, re.MULTILINE):
+                  m_br = re.search(r'(?:pkgconfig\()?([a-zA-Z0-9._+-]+)', br)
+                  if m_br:
+                      tok = m_br.group(1)
+                      deps.add(tok)
+                      deps.add(tok.split('-')[0])
+              pkg_deps[pkg_name] = deps
+
+          target_pkgs = set()
+
+          if event_name == 'workflow_dispatch' and input_pkg and input_pkg != 'all':
+              if input_pkg in all_pkgs:
+                  target_pkgs.add(input_pkg)
+              else:
+                  print(f"Package '{input_pkg}' not found on branch {target}. Available: {all_pkgs}")
+                  sys.exit(1)
+          elif event_name == 'push':
+              diff_cmd = ['git', 'diff-tree', '--no-commit-id', '--name-only', '-r', head_sha]
+              if before_sha and not re.match(r'^0+$', before_sha):
+                  diff_cmd = ['git', 'diff', '--name-only', before_sha, head_sha]
+
+              res = subprocess.run(diff_cmd, capture_output=True, text=True)
+              changed_files = res.stdout.splitlines()
+              print(f"Files modified in push: {changed_files}")
+              for f in changed_files:
+                  parts = Path(f.strip()).parts
+                  if len(parts) >= 2 and parts[0] in all_pkgs:
+                      target_pkgs.add(parts[0])
+
+              if not target_pkgs:
+                  print("No package spec files modified in this push. Exiting.")
+                  sys.exit(0)
+          else:
+              target_pkgs = set(all_pkgs)
+
+          print(f"Target packages to build on {target}: {sorted(list(target_pkgs))}")
+
+          batch_deps = {p: [d for d in pkg_deps.get(p, set()) if d in target_pkgs] for p in target_pkgs}
+
+          def topo_sort(packages, deps):
+              in_degree = {p: 0 for p in packages}
+              graph = {p: [] for p in packages}
+              for p in packages:
+                  for d in deps.get(p, []):
+                      if d in packages:
+                          graph[d].append(p)
+                          in_degree[p] += 1
+              queue = [p for p in packages if in_degree[p] == 0]
+              sorted_pkgs = []
+              while queue:
+                  curr = queue.pop(0)
+                  sorted_pkgs.append(curr)
+                  for child in graph[curr]:
+                      in_degree[child] -= 1
+                      if in_degree[child] == 0:
+                          queue.append(child)
+              for p in packages:
+                  if p not in sorted_pkgs:
+                      sorted_pkgs.append(p)
+              return sorted_pkgs
+
+          ordered_pkgs = topo_sort(list(target_pkgs), batch_deps)
+          print(f"Topological build order: {ordered_pkgs}")
+
+          copr_login = os.environ.get('COPR_LOGIN')
+          copr_user = os.environ.get('COPR_USERNAME')
+          copr_token = os.environ.get('COPR_TOKEN')
+          copr_project = os.environ.get(f'COPR_PROJECT_{target.upper()}') or os.environ.get('COPR_PROJECT')
+
+          if not (copr_login and copr_user and copr_token and copr_project):
+              print("COPR credentials or project not configured. Skipping build dispatch.")
+              sys.exit(0)
+
+          copr_dir = Path.home() / '.config'
+          copr_dir.mkdir(parents=True, exist_ok=True)
+          (copr_dir / 'copr').write_text(f"[copr-cli]\nlogin = {copr_login}\nusername = {copr_user}\ntoken = {copr_token}\ncopr_url = https://copr.fedorainfracloud.org\n", encoding='utf-8')
+
+          subprocess.run(['pip', 'install', '--quiet', '--break-system-packages', 'copr-cli'], check=True)
+
+          build_ids = {}
+          for pkg in ordered_pkgs:
+              cmd = ['copr-cli', 'build-package', '--name', pkg, '--nowait']
+
+              after_id = None
+              for dep in batch_deps.get(pkg, []):
+                  if dep in build_ids:
+                      after_id = build_ids[dep]
+
+              if after_id:
+                  cmd.extend(['--after-build-id', str(after_id)])
+              cmd.append(copr_project)
+
+              print(f"Dispatching build: {' '.join(cmd)}")
+              res = subprocess.run(cmd, capture_output=True, text=True)
+              print(res.stdout)
+              if res.stderr:
+                  print(res.stderr, file=sys.stderr)
+
+              m_id = re.search(r'Created builds:\s*(\d+)', res.stdout)
+              if m_id:
+                  build_ids[pkg] = m_id.group(1)
+                  print(f"Dispatched build {m_id.group(1)} for {pkg}")
+          EOF
