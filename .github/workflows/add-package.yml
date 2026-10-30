@@ -1,0 +1,143 @@
+name: add-package
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: add-package-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  scaffold:
+    if: github.event.label.name == 'add-package' && github.event.issue.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Process Package Submission
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_USER: ${{ github.event.issue.user.login }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          COPR_LOGIN: ${{ secrets.COPR_LOGIN }}
+          COPR_USERNAME: ${{ secrets.COPR_USERNAME }}
+          COPR_TOKEN: ${{ secrets.COPR_TOKEN }}
+          COPR_PROJECT: ${{ secrets.COPR_PROJECT }}
+          COPR_PROJECT_UNPATCHED: ${{ secrets.COPR_PROJECT_UNPATCHED }}
+          COPR_PROJECT_PATCHED: ${{ secrets.COPR_PROJECT_PATCHED }}
+        run: |
+          python3 << 'EOF'
+          import os, sys, re, subprocess
+          from pathlib import Path
+
+          issue_author = (os.environ.get('ISSUE_USER') or '').lower()
+          owner = (os.environ.get('REPO_OWNER') or '').lower()
+
+          if issue_author != owner:
+              print(f"Security rejection: unauthorized issue author '{issue_author}'")
+              sys.exit(0)
+
+          issue_num = os.environ.get('ISSUE_NUMBER')
+          body = os.environ.get('ISSUE_BODY', '')
+
+          def extract(title, text):
+              m = re.search(rf'### {title}\s*\n+(.*?)(?=\n+### |\Z)', text, re.DOTALL)
+              if not m:
+                  return ''
+              val = m.group(1).strip()
+              if val.startswith('```'):
+                  lines = val.splitlines()
+                  if len(lines) >= 2 and lines[-1].strip() == '```':
+                      val = '\n'.join(lines[1:-1])
+              return val.strip()
+
+          target = extract('Target Repository / Branch', body).strip().lower()
+          if target not in ('unpatched', 'patched'):
+              target = 'unpatched'
+
+          pkg = extract('Package Name', body).strip()
+          spec = extract('Spec File Content', body).strip()
+
+          if not pkg or not re.match(r'^[a-zA-Z0-9._+-]+$', pkg):
+              subprocess.run(['gh', 'issue', 'comment', issue_num, '--body', f'Error: Invalid or missing package name `{pkg}`.'], check=False)
+              sys.exit(1)
+
+          if not spec or 'Name:' not in spec or 'Version:' not in spec:
+              subprocess.run(['gh', 'issue', 'comment', issue_num, '--body', 'Error: Spec content must contain at least `Name:` and `Version:`.'], check=False)
+              sys.exit(1)
+
+          subprocess.run(['git', 'checkout', '-B', target, f"origin/{target}"], check=True)
+
+          spec_dir = Path(pkg)
+          spec_file = spec_dir / f"{pkg}.spec"
+
+          if spec_file.exists():
+              subprocess.run(['gh', 'issue', 'comment', issue_num, '--body', f'Notice: Package `{pkg}` already exists in `{spec_file}` on branch `{target}`.'], check=False)
+              sys.exit(0)
+
+          spec_dir.mkdir(parents=True, exist_ok=True)
+          spec_file.write_text(spec + '\n', encoding='utf-8')
+
+          gitignore_file = spec_dir / ".gitignore"
+          if not gitignore_file.exists():
+              gitignore_file.write_text("*.tar.gz\n*.tar.bz2\n*.tar.xz\n*.src.rpm\n*.rpm\n", encoding='utf-8')
+
+          subprocess.run(['git', 'config', 'user.name', 'Ali Utku Çakır'], check=True)
+          subprocess.run(['git', 'config', 'user.email', 'aliutkucakir17@gmail.com'], check=True)
+          repo_url = f"https://x-access-token:{os.environ['GH_TOKEN']}@github.com/{os.environ['GITHUB_REPOSITORY']}.git"
+          subprocess.run(['git', 'remote', 'set-url', 'origin', repo_url], check=True)
+          subprocess.run(['git', 'add', str(spec_dir)], check=True)
+          subprocess.run(['git', 'commit', '-m', f"feat: add {pkg} package ({target})"], check=True)
+
+          pushed = False
+          for _ in range(3):
+              res = subprocess.run(['git', 'push', 'origin', f"HEAD:{target}"], capture_output=True, text=True)
+              if res.returncode == 0:
+                  pushed = True
+                  break
+              subprocess.run(['git', 'pull', '--rebase', 'origin', target], check=False)
+
+          if not pushed:
+              raise RuntimeError(f"Could not push to {target} after retries")
+
+          copr_login = os.environ.get('COPR_LOGIN')
+          copr_user = os.environ.get('COPR_USERNAME')
+          copr_token = os.environ.get('COPR_TOKEN')
+          copr_project = os.environ.get(f'COPR_PROJECT_{target.upper()}') or os.environ.get('COPR_PROJECT')
+
+          copr_status = ""
+          if copr_login and copr_user and copr_token and copr_project:
+              copr_dir = Path.home() / '.config'
+              copr_dir.mkdir(parents=True, exist_ok=True)
+              (copr_dir / 'copr').write_text(f"[copr-cli]\nlogin = {copr_login}\nusername = {copr_user}\ntoken = {copr_token}\ncopr_url = https://copr.fedorainfracloud.org\n", encoding='utf-8')
+
+              subprocess.run(['pip', 'install', '--quiet', '--break-system-packages', 'copr-cli'], check=True)
+              add_cmd = [
+                  'copr-cli', 'add-package-scm',
+                  '--name', pkg,
+                  '--clone-url', f"https://github.com/{os.environ['GITHUB_REPOSITORY']}.git",
+                  '--commit', target,
+                  '--subdir', pkg,
+                  '--spec', f"{pkg}.spec",
+                  '--webhook-rebuild', 'on',
+                  copr_project
+              ]
+              subprocess.run(add_cmd, check=True)
+
+              build_cmd = ['copr-cli', 'build-package', '--name', pkg, '--nowait', copr_project]
+              subprocess.run(build_cmd, check=True)
+              copr_status = f"\n\nAutomated COPR registration in `{copr_project}` (branch `{target}`) completed and build has been dispatched."
+
+          comment = f"Successfully scaffolded package `{pkg}` on branch `{target}` at `{spec_file}`.{copr_status}"
+          subprocess.run(['gh', 'issue', 'comment', issue_num, '--body', comment], check=True)
+          subprocess.run(['gh', 'issue', 'close', issue_num, '--reason', 'completed'], check=True)
+          EOF

@@ -1,0 +1,35 @@
+name: Add Package
+description: Automatically scaffold and track a new Fedora package in this repository
+title: "[Package]: "
+labels: ["add-package"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Submit this form to automatically add a new package. The automation will validate the spec, create the package directory, commit the spec file, and trigger the corresponding COPR project.
+  - type: dropdown
+    id: target
+    attributes:
+      label: Target Repository / Branch
+      description: Select target COPR project and Git branch
+      options:
+        - unpatched
+        - patched
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: Package Name
+      description: Exact RPM package name (e.g., mangowm)
+      placeholder: mangowm
+    validations:
+      required: true
+  - type: textarea
+    id: spec
+    attributes:
+      label: Spec File Content
+      description: Complete Fedora .spec file content
+      render: spec
+    validations:
+      required: true
