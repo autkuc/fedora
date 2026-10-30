@@ -5,70 +5,51 @@ on:
     branches:
       - unpatched
       - patched
+    paths:
+      - '*/*.spec'
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Target branch (unpatched, patched, or all)'
+        description: 'Target branch'
         required: false
-        default: 'all'
+        default: 'unpatched'
         type: choice
         options:
-          - all
           - unpatched
           - patched
       package:
-        description: 'Specific package to build (or "all" for all packages)'
+        description: 'Specific package to build (or "all")'
         required: false
         default: 'all'
 
 permissions:
   contents: read
 
+concurrency:
+  group: push-${{ github.event.inputs.branch || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   dispatch:
     runs-on: ubuntu-latest
-    concurrency:
-      group: push-${{ matrix.branch }}
-      cancel-in-progress: false
-    strategy:
-      fail-fast: false
-      matrix:
-        branch: [unpatched, patched]
     steps:
-      - name: Filter Target Branch
-        id: filter
+      - name: Determine Target Branch
+        id: target
         run: |
-          target="${{ matrix.branch }}"
-          event="${{ github.event_name }}"
-          req_branch="${{ github.event.inputs.branch }}"
-          ref="${{ github.ref_name }}"
-
-          if [ "$event" = "push" ]; then
-            if [ "$ref" = "$target" ]; then
-              echo "run=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "run=false" >> "$GITHUB_OUTPUT"
-            fi
-          elif [ "$event" = "workflow_dispatch" ]; then
-            if [ -z "$req_branch" ] || [ "$req_branch" = "all" ] || [ "$req_branch" = "$target" ]; then
-              echo "run=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "run=false" >> "$GITHUB_OUTPUT"
-            fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.branch }}" ]; then
+            echo "branch=${{ github.event.inputs.branch }}" >> "$GITHUB_OUTPUT"
           else
-            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "branch=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@v4
-        if: steps.filter.outputs.run == 'true'
         with:
-          ref: ${{ matrix.branch }}
+          ref: ${{ steps.target.outputs.branch }}
           fetch-depth: 0
 
       - name: Dispatch Synchronized COPR Builds
-        if: steps.filter.outputs.run == 'true'
         env:
-          TARGET_BRANCH: ${{ matrix.branch }}
+          TARGET_BRANCH: ${{ steps.target.outputs.branch }}
           EVENT_NAME: ${{ github.event_name }}
           INPUT_PKG: ${{ github.event.inputs.package }}
           BEFORE_SHA: ${{ github.event.before }}
@@ -84,7 +65,7 @@ jobs:
           import os, sys, re, subprocess
           from pathlib import Path
 
-          target = os.environ.get('TARGET_BRANCH', 'unpatched').strip()
+          target = os.environ.get('TARGET_BRANCH', '').strip()
           event_name = os.environ.get('EVENT_NAME', '')
           input_pkg = (os.environ.get('INPUT_PKG') or 'all').strip()
           before_sha = os.environ.get('BEFORE_SHA', '')
@@ -121,29 +102,26 @@ jobs:
               else:
                   print(f"Package '{input_pkg}' not found on branch {target}. Available: {all_pkgs}")
                   sys.exit(1)
-          elif event_name == 'push' and before_sha and not re.match(r'^0+$', before_sha):
-              diff_res = subprocess.run(['git', 'diff', '--name-only', before_sha, head_sha], capture_output=True, text=True)
-              changed_files = diff_res.stdout.splitlines()
+          elif event_name == 'push':
+              diff_cmd = ['git', 'diff-tree', '--no-commit-id', '--name-only', '-r', head_sha]
+              if before_sha and not re.match(r'^0+$', before_sha):
+                  diff_cmd = ['git', 'diff', '--name-only', before_sha, head_sha]
+
+              res = subprocess.run(diff_cmd, capture_output=True, text=True)
+              changed_files = res.stdout.splitlines()
+              print(f"Files modified in push: {changed_files}")
               for f in changed_files:
-                  parts = Path(f).parts
+                  parts = Path(f.strip()).parts
                   if len(parts) >= 2 and parts[0] in all_pkgs:
                       target_pkgs.add(parts[0])
+
               if not target_pkgs:
-                  print(f"No package spec changes detected between {before_sha[:7]} and {head_sha[:7]}.")
+                  print("No package spec files modified in this push. Exiting.")
                   sys.exit(0)
           else:
               target_pkgs = set(all_pkgs)
 
-          added = True
-          while added:
-              added = False
-              for p in all_pkgs:
-                  if p not in target_pkgs:
-                      if any(d in target_pkgs for d in pkg_deps.get(p, set())):
-                          target_pkgs.add(p)
-                          added = True
-
-          print(f"Selected packages to build: {sorted(list(target_pkgs))}")
+          print(f"Target packages to build on {target}: {sorted(list(target_pkgs))}")
 
           batch_deps = {p: [d for d in pkg_deps.get(p, set()) if d in target_pkgs] for p in target_pkgs}
 
