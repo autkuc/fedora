@@ -1,0 +1,216 @@
+#!/usr/bin/python3
+import sys
+import os
+import shutil
+import subprocess
+import urllib.request
+import hashlib
+import tarfile
+from pathlib import Path
+
+TARGET_PLUGINS = [
+    "libheif-libde265.so",
+    "libheif-x265.so",
+    "libheif-x264.so",
+    "libheif-vvdec.so",
+    "libheif-vvenc.so",
+    "libheif-kvazaar.so",
+    "libheif-uvg266.so",
+]
+
+def get_plugin_dir():
+    if os.geteuid() == 0:
+        for p in [Path("/usr/lib64/libheif"), Path("/usr/lib/libheif")]:
+            if p.exists() or p.parent.exists():
+                return p
+        return Path("/usr/lib64/libheif")
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return Path(xdg) / "libheif" / "plugins"
+    return Path.home() / ".local" / "share" / "libheif" / "plugins"
+
+def get_installed_libheif_version():
+    try:
+        import ctypes
+        lib = ctypes.CDLL("libheif.so.1")
+        lib.heif_get_version.restype = ctypes.c_char_p
+        v = lib.heif_get_version().decode("ascii")
+        if v:
+            return v
+    except Exception:
+        pass
+    try:
+        res = subprocess.run(
+            ["rpm", "-q", "--qf", "%{VERSION}", "libheif"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:
+        pass
+    return "1.23.7"
+
+def compute_codec_abi_hash():
+    h = hashlib.sha256()
+    soname = "libheif.so.1"
+    for p in ["/usr/lib64/libheif.so.1", "/usr/lib/libheif.so.1", "/lib/x86_64-linux-gnu/libheif.so.1"]:
+        if os.path.exists(p):
+            try:
+                with open(p, "rb") as f:
+                    data = f.read()
+                idx = data.find(b"libheif.so.")
+                if idx != -1:
+                    end = data.find(b"\x00", idx)
+                    soname = data[idx:end].decode("ascii", "ignore")
+                for sym in [
+                    b"heif_register_decoder_plugin",
+                    b"heif_register_encoder_plugin",
+                    b"heif_image_create",
+                    b"heif_image_add_plane_safe",
+                    b"heif_image_get_plane2"
+                ]:
+                    if sym in data:
+                        h.update(sym)
+            except Exception:
+                pass
+            break
+    if os.path.exists("/usr/include/libheif/heif_plugin.h"):
+        try:
+            with open("/usr/include/libheif/heif_plugin.h", "rb") as f:
+                h.update(f.read())
+        except Exception:
+            pass
+    h.update(soname.encode())
+    return h.hexdigest()
+
+def are_plugins_installed(plugin_dir, current_hash):
+    key_plugin = plugin_dir / "libheif-libde265.so"
+    hash_file = plugin_dir / ".abi.hash"
+    if key_plugin.exists() and hash_file.exists():
+        try:
+            if hash_file.read_text().strip() == current_hash:
+                return True
+        except Exception:
+            pass
+    return False
+
+def build_upstream_plugins(plugin_dir, version, current_hash):
+    if not shutil.which("cmake"):
+        print("[libheif-plugin-helper] Prerequisite missing: 'cmake' is required to compile codec plugins. Skipping.", flush=True)
+        return False
+    if not (shutil.which("g++") or shutil.which("clang++") or shutil.which("c++")):
+        print("[libheif-plugin-helper] Prerequisite missing: C++ compiler ('g++') is required. Skipping.", flush=True)
+        return False
+
+    scratch_dir = Path("/tmp") / f"libheif_plugin_build_{os.getpid()}"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+
+    tarball_url = f"https://github.com/strukturag/libheif/archive/refs/tags/v{version}.tar.gz"
+    tarball_path = scratch_dir / f"libheif-{version}.tar.gz"
+
+    try:
+        print(f"[libheif-plugin-helper] [1/4] Fetching upstream sources v{version}...", flush=True)
+        req = urllib.request.Request(tarball_url, headers={"User-Agent": "libheif-plugin-builder"})
+        with urllib.request.urlopen(req, timeout=30) as resp, open(tarball_path, "wb") as out:
+            shutil.copyfileobj(resp, out)
+
+        print("[libheif-plugin-helper] [2/4] Extracting source archive...", flush=True)
+        with tarfile.open(tarball_path, "r:gz") as tar:
+            tar.extractall(path=scratch_dir)
+
+        src_dir = scratch_dir / f"libheif-{version}"
+        build_dir = scratch_dir / "build"
+        build_dir.mkdir(parents=True, exist_ok=True)
+
+        print("[libheif-plugin-helper] [3/4] Configuring and building codec plugins...", flush=True)
+        generator_args = ["-GNinja"] if shutil.which("ninja") else []
+        cmake_cmd = [
+            "cmake",
+            *generator_args,
+            f"-S{src_dir}",
+            f"-B{build_dir}",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_SKIP_RPATH=ON",
+            "-DENABLE_PLUGIN_LOADING=ON",
+            f"-DPLUGIN_DIRECTORY={plugin_dir}",
+            "-DWITH_EXAMPLES=OFF",
+            "-DWITH_TESTING=OFF",
+            "-DWITH_LIBDE265=ON",
+            "-DWITH_LIBDE265_PLUGIN=ON",
+            "-DWITH_X265=ON",
+            "-DWITH_X265_PLUGIN=ON",
+            "-DWITH_X264=ON",
+            "-DWITH_X264_PLUGIN=ON",
+            "-DWITH_VVDEC=ON",
+            "-DWITH_VVDEC_PLUGIN=ON",
+            "-DWITH_VVENC=ON",
+            "-DWITH_VVENC_PLUGIN=ON",
+            "-DWITH_KVAZAAR=ON",
+            "-DWITH_KVAZAAR_PLUGIN=ON",
+            "-DWITH_UVG266=ON",
+            "-DWITH_UVG266_PLUGIN=ON",
+            "-DWITH_AOM_DECODER=OFF",
+            "-DWITH_AOM_ENCODER=OFF",
+            "-DWITH_DAV1D=OFF",
+            "-DWITH_GDK_PIXBUF=OFF"
+        ]
+
+        subprocess.run(cmake_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+        targets = ["heif-libde265", "heif-x265", "heif-x264", "heif-vvdec", "heif-vvenc", "heif-kvazaar", "heif-uvg266"]
+        for target in targets:
+            print(f"  -> Building target {target}...", flush=True)
+            try:
+                subprocess.run(
+                    ["cmake", "--build", str(build_dir), "--target", target, "--parallel"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            except Exception:
+                pass
+
+        print(f"[libheif-plugin-helper] [4/4] Installing plugins to {plugin_dir}...", flush=True)
+        installed_count = 0
+        for root, _, files in os.walk(build_dir):
+            for file in files:
+                if file.startswith("libheif-") and file.endswith(".so"):
+                    src_so = Path(root) / file
+                    dest_so = plugin_dir / file
+                    shutil.copy2(src_so, dest_so)
+                    dest_so.chmod(0o755)
+                    print(f"  Installed: {file}", flush=True)
+                    installed_count += 1
+
+        if installed_count > 0:
+            (plugin_dir / ".abi.hash").write_text(current_hash)
+            print(f"[libheif-plugin-helper] Complete: {installed_count} plugin(s) installed.", flush=True)
+            if os.geteuid() != 0:
+                print(f"[libheif-plugin-helper] Note: To use user-installed plugins, ensure LIBHEIF_PLUGIN_PATH is set to {plugin_dir}.", flush=True)
+            return True
+        else:
+            print("[libheif-plugin-helper] Notice: 0 plugins built. To build plugins, install development headers (e.g. libde265-devel, x265-devel) and rerun.", flush=True)
+    except Exception as e:
+        print(f"[libheif-plugin-helper] Build notice: {e}", flush=True)
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+    return False
+
+def main():
+    plugin_dir = get_plugin_dir()
+    current_hash = compute_codec_abi_hash()
+
+    if are_plugins_installed(plugin_dir, current_hash):
+        print(f"[libheif-plugin-helper] Codec plugins up-to-date (ABI hash: {current_hash[:8]}). Exiting.", flush=True)
+        return 0
+
+    version = get_installed_libheif_version()
+    print(f"[libheif-plugin-helper] Codec plugin setup needed for version {version}...", flush=True)
+    build_upstream_plugins(plugin_dir, version, current_hash)
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
