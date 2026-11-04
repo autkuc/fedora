@@ -11,6 +11,8 @@ Source0:        https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/r
 %global nmplugindir %{_libdir}/%{name}/%{version}-%{release}
 
 BuildRequires:  gcc
+BuildRequires:  clang
+BuildRequires:  bpftool
 BuildRequires:  meson >= 0.59.0
 BuildRequires:  ninja-build
 BuildRequires:  gettext-devel
@@ -43,6 +45,7 @@ BuildRequires:  python3
 BuildRequires:  python3-gobject-base
 BuildRequires:  libxslt
 BuildRequires:  firewalld-filesystem
+BuildRequires:  iproute-tc
 BuildRequires:  iwd
 
 Requires:       %{name}-libnm%{?_isa} = %{epoch}:%{version}-%{release}
