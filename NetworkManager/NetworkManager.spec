@@ -8,6 +8,7 @@ License:        GPL-2.0-or-later AND LGPL-2.1-or-later
 URL:            https://networkmanager.dev/
 Source0:        https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/releases/%{version}/downloads/%{name}-%{version}.tar.xz
 
+%global debug_package %{nil}
 %global nmplugindir %{_libdir}/%{name}/%{version}-%{release}
 
 BuildRequires:  gcc
@@ -43,9 +44,6 @@ BuildRequires:  vala
 BuildRequires:  bash-completion
 BuildRequires:  python3
 BuildRequires:  python3-gobject-base
-BuildRequires:  libxslt
-BuildRequires:  docbook-style-xsl
-BuildRequires:  docbook-dtds
 BuildRequires:  firewalld-filesystem
 BuildRequires:  iproute-tc
 BuildRequires:  iwd
@@ -121,8 +119,10 @@ with libnm.
     -Dcrypto=gnutls \
     -Dsystemd_journal=true \
     -Dsuspend_resume=systemd \
+    -Dsession_tracking=systemd \
     -Dsession_tracking_consolekit=false \
     -Dpolkit=true \
+    -Dconfig_auth_polkit_default=true \
     -Dpolkit_noauth_group=wheel \
     -Dselinux=false \
     -Dlibaudit=yes-disabled-by-default \
@@ -133,14 +133,26 @@ with libnm.
     -Dmodem_manager=true \
     -Dbluez5_dun=true \
     -Dppp=true \
+    -Dovs=false \
+    -Dteamdctl=false \
     -Dnmtui=true \
     -Dnm_cloud_setup=true \
+    -Dsystemdsystemunitdir=%{_unitdir} \
+    -Dsystemdsystemgeneratordir=%{_systemdgeneratordir} \
+    -Dsystem_ca_path=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+    -Ddbus_conf_dir=%{_datadir}/dbus-1/system.d \
     -Dconfig_dns_rc_manager_default=auto \
     -Dconfig_logging_backend_default=journal \
     -Dvapi=true \
     -Dintrospection=true \
     -Ddocs=false \
-    -Dtests=no
+    -Dman=false \
+    -Dtests=no \
+    -Dvalgrind=no \
+    -Difupdown=false \
+    -Dresolvconf=no \
+    -Dnetconfig=no \
+    -Dqt=false
 
 %meson_build
 
@@ -177,6 +189,11 @@ mkdir -p %{buildroot}%{_prefix}/lib/NetworkManager/system-connections
 mkdir -p %{buildroot}%{_prefix}/lib/NetworkManager/VPN
 mkdir -p %{buildroot}%{_localstatedir}/lib/NetworkManager
 
+rm -f %{buildroot}%{_systemdgeneratordir}/nm-initrd-generator.sh
+rm -f %{buildroot}%{_unitdir}/NetworkManager-config-initrd.service
+rm -f %{buildroot}%{_unitdir}/NetworkManager-initrd.service
+rm -f %{buildroot}%{_unitdir}/NetworkManager-wait-online-initrd.service
+rm -rf %{buildroot}%{_datadir}/doc/NetworkManager/examples
 rm -rf %{buildroot}%{_datadir}/gtk-doc
 
 %find_lang NetworkManager
@@ -230,9 +247,6 @@ rm -rf %{buildroot}%{_datadir}/gtk-doc
 %{nmplugindir}/libnm-wwan.so
 %{nmplugindir}/libnm-ppp-plugin.so
 %{_libdir}/pppd/*/*.so
-%{_mandir}/man*/*
-%exclude %{_mandir}/man1/nmtui*
-%exclude %{_mandir}/man8/nm-cloud-setup*
 
 %files wifi
 %{nmplugindir}/libnm-device-plugin-wifi.so
@@ -241,12 +255,10 @@ rm -rf %{buildroot}%{_datadir}/gtk-doc
 
 %files tui
 %{_bindir}/nmtui*
-%{_mandir}/man1/nmtui*
 
 %files cloud-setup
 %{_libexecdir}/nm-cloud-setup
 %{_unitdir}/nm-cloud-setup.*
-%{_mandir}/man8/nm-cloud-setup*
 %{_prefix}/lib/NetworkManager/dispatcher.d/*90-nm-cloud-setup.sh
 %{_prefix}/lib/NetworkManager/dispatcher.d/*/*90-nm-cloud-setup.sh
 
