@@ -1,6 +1,6 @@
 Name:           NetworkManager
 Epoch:          1
-Version:        1.59.1-dev
+Version:        1.58.1
 Release:        %autorelease
 Summary:        Network connection manager and user applications (iwd Wi-Fi backend)
 
