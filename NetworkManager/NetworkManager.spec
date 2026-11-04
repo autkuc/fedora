@@ -35,6 +35,8 @@ BuildRequires:  mobile-broadband-provider-info-devel
 BuildRequires:  ModemManager-glib-devel
 BuildRequires:  bluez-libs-devel
 BuildRequires:  ppp-devel
+BuildRequires:  ppp
+BuildRequires:  slang-devel
 BuildRequires:  vala
 BuildRequires:  bash-completion
 BuildRequires:  python3
@@ -116,9 +118,7 @@ with libnm.
     -Dsuspend_resume=systemd \
     -Dsession_tracking_consolekit=false \
     -Dpolkit=true \
-    -Dpolkit_agent=true \
     -Dpolkit_noauth_group=wheel \
-    -Dmodify_system=true \
     -Dselinux=false \
     -Dlibaudit=yes-disabled-by-default \
     -Dwifi=true \
