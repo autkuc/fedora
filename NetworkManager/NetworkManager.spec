@@ -54,7 +54,6 @@ Requires:       iwd
 Recommends:     %{name}-wifi%{?_isa} = %{epoch}:%{version}-%{release}
 Provides:       networkmanager = %{epoch}:%{version}-%{release}
 
-Provides:       %{name}-bluetooth = %{epoch}:%{version}-%{release}
 Provides:       %{name}-wwan = %{epoch}:%{version}-%{release}
 Provides:       %{name}-ppp = %{epoch}:%{version}-%{release}
 
@@ -74,6 +73,15 @@ Obsoletes:      NetworkManager-wifi < %{epoch}:%{version}-%{release}
 %description    wifi
 This package provides Wi-Fi support for NetworkManager powered by iwd
 (Internet Wireless Daemon).
+
+%package        bluetooth
+Summary:        Bluetooth device plugin for NetworkManager
+Requires:       %{name}%{?_isa} = %{epoch}:%{version}-%{release}
+Requires:       bluez
+Provides:       networkmanager-bluetooth = %{epoch}:%{version}-%{release}
+
+%description    bluetooth
+This package contains NetworkManager support for Bluetooth devices.
 
 %package        tui
 Summary:        Terminal user interface for NetworkManager (nmtui)
@@ -244,6 +252,7 @@ rm -rf %{buildroot}%{_datadir}/gtk-doc
 %dir %{nmplugindir}
 %{nmplugindir}/libnm-device-plugin-*.so
 %exclude %{nmplugindir}/libnm-device-plugin-wifi.so
+%exclude %{nmplugindir}/libnm-device-plugin-bluetooth.so
 %{nmplugindir}/libnm-wwan.so
 %{nmplugindir}/libnm-ppp-plugin.so
 %{_libdir}/pppd/*/*.so
@@ -252,6 +261,9 @@ rm -rf %{buildroot}%{_datadir}/gtk-doc
 %{nmplugindir}/libnm-device-plugin-wifi.so
 %{_prefix}/lib/NetworkManager/conf.d/30-wifi-backend.conf
 %{_unitdir}/iwd.service.d/90-networkmanager.conf
+
+%files bluetooth
+%{nmplugindir}/libnm-device-plugin-bluetooth.so
 
 %files tui
 %{_bindir}/nmtui*
