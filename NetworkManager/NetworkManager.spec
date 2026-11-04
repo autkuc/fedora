@@ -44,6 +44,8 @@ BuildRequires:  bash-completion
 BuildRequires:  python3
 BuildRequires:  python3-gobject-base
 BuildRequires:  libxslt
+BuildRequires:  docbook-style-xsl
+BuildRequires:  docbook-dtds
 BuildRequires:  firewalld-filesystem
 BuildRequires:  iproute-tc
 BuildRequires:  iwd
