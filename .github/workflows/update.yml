@@ -97,9 +97,15 @@ jobs:
                   print(f"[{pkg_name}] Current version: {cur_ver}. Upstream version not found.")
                   continue
 
-              if vercmp(cur_ver, new_ver) < 0:
-                  print(f"[{pkg_name}] Updating from {cur_ver} -> {new_ver}")
-                  content = re.sub(r'^(Version:\s*).*$', rf'\g<1>{new_ver}', content, flags=re.MULTILINE)
+              if re.search(r'-(?:dev|alpha|beta|rc)', new_ver, re.I) and not re.search(r'~(?:dev|alpha|beta|rc)', cur_ver, re.I):
+                  print(f"[{pkg_name}] Skipping pre-release/dev version {new_ver}.")
+                  continue
+
+              sanitized_ver = new_ver.replace('-', '~')
+
+              if vercmp(cur_ver, sanitized_ver) < 0:
+                  print(f"[{pkg_name}] Updating from {cur_ver} -> {sanitized_ver}")
+                  content = re.sub(r'^(Version:\s*).*$', rf'\g<1>{sanitized_ver}', content, flags=re.MULTILINE)
                   if not re.search(r'^Release:\s*%autorelease', content, re.MULTILINE):
                       content = re.sub(r'^(Release:\s*).*$', r'\g<1>1%{?dist}', content, flags=re.MULTILINE)
 
