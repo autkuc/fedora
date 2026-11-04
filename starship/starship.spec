@@ -10,6 +10,7 @@ Source0:        https://github.com/starship/starship/archive/refs/tags/v%{versio
 BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  cargo-rpm-macros
+BuildRequires:  gcc
 
 %description
 Starship is the minimal, blazing-fast, and infinitely customizable prompt
@@ -27,7 +28,6 @@ cargo build --release --locked
 %install
 install -D -p -m 0755 target/release/starship %{buildroot}%{_bindir}/starship
 
-# Generate shell completions as documented in starship.rs
 install -d %{buildroot}%{_datadir}/bash-completion/completions
 %{buildroot}%{_bindir}/starship completions bash > %{buildroot}%{_datadir}/bash-completion/completions/starship || :
 
