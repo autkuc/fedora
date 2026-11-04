@@ -166,6 +166,14 @@ jobs:
 
           subprocess.run(['pip', 'install', '--quiet', '--break-system-packages', 'copr-cli'], check=True)
 
+          # Ensure network access is enabled for the Copr project to allow network-dependent builds (e.g. cargo/npm)
+          print(f"Ensuring network access is enabled for Copr project '{copr_project}'...")
+          res_mod = subprocess.run(['copr-cli', 'modify', '--enable-net', 'on', copr_project], capture_output=True, text=True)
+          if res_mod.stdout:
+              print(res_mod.stdout)
+          if res_mod.stderr:
+              print(res_mod.stderr, file=sys.stderr)
+
           build_ids = {}
           for pkg in ordered_pkgs:
               # Automatically add package SCM to Copr if it doesn't exist yet
@@ -192,7 +200,7 @@ jobs:
                   else:
                       print(f"Package '{pkg}' successfully registered in Copr.")
 
-              cmd = ['copr-cli', 'build-package', '--name', pkg, '--nowait']
+              cmd = ['copr-cli', 'build-package', '--name', pkg, '--enable-net', 'on', '--nowait']
 
               after_id = None
               for dep in batch_deps.get(pkg, []):
