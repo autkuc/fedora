@@ -5,9 +5,10 @@ Summary:        ASCII and ANSI art editor for the terminal
 
 License:        BSD-3-Clause
 URL:            https://github.com/durdraw/durdraw
-Source0:        %{url}/archive/refs/tags/%{version}.tar.gz
+Source0:        https://github.com/durdraw/durdraw/archive/refs/tags/%{version}.tar.gz
 
 BuildArch:      noarch
+BuildRequires:  pyproject-rpm-macros
 BuildRequires:  python3-devel
 BuildRequires:  python3-setuptools
 
