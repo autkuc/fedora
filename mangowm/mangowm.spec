@@ -1,5 +1,5 @@
 Name:           mangowm
-Version:        0.19.0
+Version:        0.19.2
 Release:        %autorelease
 Summary:        Lightweight tiling Wayland compositor with smooth animations
 
