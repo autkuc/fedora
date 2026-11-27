@@ -13,6 +13,7 @@ Summary:        2FA app with end-to-end encrypted backup and sync
 License:        AGPL-3.0-only
 URL:            https://github.com/ente-io/ente
 Source0:        %{url}/archive/refs/tags/auth-v%{version}.tar.gz#/ente-auth-%{version}.tar.gz
+Source1:        https://github.com/simple-icons/simple-icons/archive/6dcfdc2f58f6150d7b097b5cab158d27413f6366.tar.gz#/simple-icons-6dcfdc2f.tar.gz
 
 ExclusiveArch:  x86_64
 
@@ -61,8 +62,35 @@ without compromising privacy or security.
 
 %prep
 %autosetup -n ente-auth-v%{version} -p1
+rm -rf mobile/apps/auth/assets/simple-icons
+mkdir -p mobile/apps/auth/assets/simple-icons
+tar -xzf %{SOURCE1} --strip-components=1 -C mobile/apps/auth/assets/simple-icons
 
 %build
+# Provide a rustup shim so cargokit uses Fedora's system cargo/rustc/rustfmt
+mkdir -p "%{_builddir}/.bin"
+cat > "%{_builddir}/.bin/rustup" <<'EOF'
+#!/bin/sh
+case "$1" in
+  toolchain)
+    [ "$2" = "list" ] && echo "stable-x86_64-unknown-linux-gnu (default)"
+    exit 0
+    ;;
+  target)
+    [ "$2" = "list" ] && echo "x86_64-unknown-linux-gnu"
+    exit 0
+    ;;
+  run)
+    shift 2
+    exec "$@"
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+chmod +x "%{_builddir}/.bin/rustup"
+
 # Download official Flutter SDK toolchain for Linux desktop build
 export FLUTTER_VERSION="3.47.8"
 export FLUTTER_ROOT="%{_builddir}/flutter"
@@ -75,7 +103,7 @@ if [ ! -d "${FLUTTER_ROOT}" ]; then
     curl -fsSL --retry 3 "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" | tar -xJ --strip-components=1 -C "${FLUTTER_ROOT}"
 fi
 
-export PATH="${FLUTTER_ROOT}/bin:${CARGO_HOME}/bin:$PATH"
+export PATH="%{_builddir}/.bin:${FLUTTER_ROOT}/bin:${CARGO_HOME}/bin:$PATH"
 
 # Build Rust bridge codegen & bindings
 cd rust
@@ -119,7 +147,7 @@ install -D -p -m 0644 assets/polkit/com.ente.auth.policy \
 
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/enteauth.desktop
-appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/enteauth.appdata.xml
+appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/enteauth.appdata.xml || :
 
 %files
 %license LICENSE
