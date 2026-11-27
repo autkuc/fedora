@@ -35,6 +35,9 @@ BuildRequires:  glib2-devel
 BuildRequires:  libsecret-devel
 BuildRequires:  sqlite-devel
 BuildRequires:  libayatana-appindicator3-devel
+BuildRequires:  libcurl-devel
+BuildRequires:  libsodium-devel
+BuildRequires:  libffi-devel
 BuildRequires:  desktop-file-utils
 BuildRequires:  libappstream-glib
 
