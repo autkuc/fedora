@@ -29,6 +29,7 @@ BuildRequires:  make
 BuildRequires:  pkgconf-pkg-config
 BuildRequires:  cargo
 BuildRequires:  rust
+BuildRequires:  rustfmt
 BuildRequires:  gtk3-devel
 BuildRequires:  glib2-devel
 BuildRequires:  libsecret-devel
