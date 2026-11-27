@@ -3,7 +3,7 @@
 %global _build_id_links none
 
 %global __provides_exclude_from ^%{_datadir}/enteauth/.*$
-%global __requires_exclude ^(libflutter_linux_gtk\\.so|libflutter_rust_bridge.*\\.so)$
+%global __requires_exclude_from ^%{_datadir}/enteauth/.*$
 
 Name:           ente-auth
 Version:        4.4.27
@@ -38,11 +38,14 @@ BuildRequires:  libayatana-appindicator3-devel
 BuildRequires:  libcurl-devel
 BuildRequires:  libsodium-devel
 BuildRequires:  libffi-devel
+BuildRequires:  java-devel
 BuildRequires:  desktop-file-utils
 BuildRequires:  libappstream-glib
 
 Requires:       gtk3
 Requires:       glib2
+Requires:       libX11
+Requires:       libcurl
 Requires:       libsecret
 Requires:       sqlite-libs
 Requires:       libayatana-appindicator3
@@ -65,6 +68,7 @@ export FLUTTER_VERSION="3.47.8"
 export FLUTTER_ROOT="%{_builddir}/flutter"
 export PUB_CACHE="%{_builddir}/.pub-cache"
 export CARGO_HOME="%{_builddir}/.cargo"
+export JAVA_HOME="/usr/lib/jvm/java"
 
 if [ ! -d "${FLUTTER_ROOT}" ]; then
     mkdir -p "${FLUTTER_ROOT}"
