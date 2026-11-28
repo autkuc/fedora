@@ -39,6 +39,7 @@ BuildRequires:  libcurl-devel
 BuildRequires:  libsodium-devel
 BuildRequires:  libffi-devel
 BuildRequires:  java-devel
+BuildRequires:  patchelf
 BuildRequires:  desktop-file-utils
 BuildRequires:  libappstream-glib
 
@@ -121,6 +122,11 @@ cd mobile/apps/auth
 
 install -d %{buildroot}%{_datadir}/enteauth
 cp -a build/linux/x64/release/bundle/* %{buildroot}%{_datadir}/enteauth/
+find %{buildroot}%{_datadir}/enteauth/lib -type f -name '*.so*' | while read -r so; do
+    if patchelf --print-rpath "$so" 2>/dev/null | grep -q '/builddir'; then
+        patchelf --set-rpath '$ORIGIN' "$so"
+    fi
+done
 
 install -d %{buildroot}%{_bindir}
 ln -s %{_datadir}/enteauth/enteauth %{buildroot}%{_bindir}/enteauth
