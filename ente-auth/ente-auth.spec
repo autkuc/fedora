@@ -1,4 +1,3 @@
-# upstream: ente-auth
 %global debug_package %{nil}
 %global _build_id_links none
 
@@ -67,7 +66,6 @@ mkdir -p mobile/apps/auth/assets/simple-icons
 tar -xzf %{SOURCE1} --strip-components=1 -C mobile/apps/auth/assets/simple-icons
 
 %build
-# Provide a rustup shim so cargokit uses Fedora's system cargo/rustc/rustfmt
 mkdir -p "%{_builddir}/.bin"
 cat > "%{_builddir}/.bin/rustup" <<'EOF'
 #!/bin/sh
@@ -91,7 +89,6 @@ esac
 EOF
 chmod +x "%{_builddir}/.bin/rustup"
 
-# Download official Flutter SDK toolchain for Linux desktop build
 export FLUTTER_VERSION="3.47.8"
 export FLUTTER_ROOT="%{_builddir}/flutter"
 export PUB_CACHE="%{_builddir}/.pub-cache"
@@ -105,13 +102,13 @@ fi
 
 export PATH="%{_builddir}/.bin:${FLUTTER_ROOT}/bin:${CARGO_HOME}/bin:$PATH"
 
-# Build Rust bridge codegen & bindings
+unset CFLAGS CXXFLAGS LDFLAGS
+
 cd rust
 cargo build --release --bin codegen
 ./target/release/codegen frb auth
 cd ..
 
-# Build Linux desktop bundle with Flutter
 cd mobile/apps/auth
 flutter config --no-analytics
 flutter config --enable-linux-desktop
@@ -121,27 +118,21 @@ flutter build linux --release --verbose
 %install
 cd mobile/apps/auth
 
-# Install bundle to /usr/share/enteauth
 install -d %{buildroot}%{_datadir}/enteauth
 cp -a build/linux/x64/release/bundle/* %{buildroot}%{_datadir}/enteauth/
 
-# Create binary symlink in /usr/bin
 install -d %{buildroot}%{_bindir}
 ln -s %{_datadir}/enteauth/enteauth %{buildroot}%{_bindir}/enteauth
 
-# Desktop application entry
 install -D -p -m 0644 linux/packaging/enteauth.desktop \
     %{buildroot}%{_datadir}/applications/enteauth.desktop
 
-# AppStream metadata
 install -D -p -m 0644 linux/packaging/enteauth.appdata.xml \
     %{buildroot}%{_metainfodir}/enteauth.appdata.xml
 
-# Application icon
 install -D -p -m 0644 assets/generation-icons/icon-windows-linux.png \
     %{buildroot}%{_datadir}/pixmaps/io.ente.auth.png
 
-# Polkit policy for biometric/system authentication
 install -D -p -m 0644 assets/polkit/com.ente.auth.policy \
     %{buildroot}%{_datadir}/polkit-1/actions/com.ente.auth.policy
 
