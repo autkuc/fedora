@@ -1,0 +1,11 @@
+*.tar.bz2
+*.tar.gz
+*.tar.xz
+*.src.rpm
+*.rpm
+BUILD/
+BUILDROOT/
+RPMS/
+SOURCES/
+SPECS/
+SRPMS/

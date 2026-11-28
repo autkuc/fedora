@@ -1,0 +1,31 @@
+--- bwrap.xml
++++ bwrap.xml
+@@ -29,7 +29,7 @@
+ 
+ <refnamediv>
+   <refname>bwrap</refname>
+-  <refpurpose>container setup utility</refpurpose>
++  <refpurpose>container setup utility (restricted version)</refpurpose>
+ </refnamediv>
+ 
+ <refsynopsisdiv>
+@@ -45,6 +45,10 @@
+   <command>bwrap</command> is an unprivileged low-level sandboxing tool. You
+   are unlikely to use it directly from the commandline, although that is possible.
+ </para>
++ <para>
++  (Note: This is a patched version of <command>bwrap</command> that restricts the
++  creation of user namespaces with extra capabilities.)
++</para>
+ <para>
+   It works by creating a new, completely empty, filesystem namespace where the root
+   is on a tmpfs that is invisible from the host, and which will be automatically
+@@ -604,6 +608,8 @@
+         Add the specified capability <arg choice="plain">CAP</arg>, e.g.
+         CAP_DAC_READ_SEARCH, when running as privileged user.  It accepts
+         the special value ALL to add all the permitted caps.
++
++        Only usable when bwrap is running as root.
+       </para></listitem>
+     </varlistentry>
+     <varlistentry>

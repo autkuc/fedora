@@ -1,0 +1,21 @@
+--- bubblewrap.c
++++ bubblewrap.c
+@@ -354,7 +354,7 @@
+            "    --new-session                Create a new terminal session\n"
+            "    --die-with-parent            Kills with SIGKILL child process (COMMAND) when bwrap or bwrap's parent dies.\n"
+            "    --as-pid-1                   Do not install a reaper process with PID=1\n"
+-           "    --cap-add CAP                Add cap CAP when running as privileged user\n"
++           "    --cap-add CAP                Add cap CAP when running as privileged user (only usable by root)\n"
+            "    --cap-drop CAP               Drop cap CAP when running as privileged user\n"
+            "    --perms OCTAL                Set permissions of next argument (--bind-data, --file, etc.)\n"
+            "    --size BYTES                 Set size of next argument (only for --tmpfs)\n"
+@@ -2581,6 +2581,9 @@
+       else if (strcmp (arg, "--cap-add") == 0)
+         {
+           cap_value_t cap;
++          if (real_uid != 0)
++            die ("restricted bwrap does not permit --cap-add for non-root users");
++
+           if (argc < 2)
+             die ("--cap-add takes an argument");
+ 
