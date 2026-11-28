@@ -1,0 +1,65 @@
+policy_module(bubblewrap, 1.0.11)
+
+# SPDX-FileCopyrightText: (c) 2025-2026 Russell Coker <russell@coker.com.au>
+# SPDX-FileCopyrightText: (c) 2026 Daniel Hast
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+########################################
+#
+# Declarations
+#
+
+attribute bubblewrap_domain;
+attribute_role bubblewrap_roles;
+
+type bubblewrap_exec_t;
+application_executable_file(bubblewrap_exec_t)
+
+##############################
+#
+# Local policy
+#
+
+optional_policy(`
+	gen_require(`
+		type thumb_t;
+	')
+	bubblewrap_exec(thumb_t)
+')
+
+optional_policy(`
+	gen_require(`
+		role unconfined_r;
+		type unconfined_t;
+	')
+	bubblewrap_role(unconfined, unconfined_t, unconfined_r)
+	bubblewrap_nnp_domtrans(unconfined, unconfined_t)
+')
+
+optional_policy(`
+	gen_require(`
+		role sysadm_r;
+		type sysadm_t;
+	')
+	bubblewrap_role(sysadm, sysadm_t, sysadm_r)
+	bubblewrap_nnp_domtrans(sysadm, sysadm_t)
+')
+
+optional_policy(`
+	gen_require(`
+		role staff_r;
+		type staff_t;
+	')
+	bubblewrap_role(staff, staff_t, staff_r)
+	bubblewrap_nnp_domtrans(staff, staff_t)
+')
+
+optional_policy(`
+	gen_require(`
+		role user_r;
+		type user_t;
+	')
+	bubblewrap_role(user, user_t, user_r)
+	bubblewrap_nnp_domtrans(user, user_t)
+')
