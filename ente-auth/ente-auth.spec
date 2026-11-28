@@ -64,6 +64,7 @@ without compromising privacy or security.
 rm -rf mobile/apps/auth/assets/simple-icons
 mkdir -p mobile/apps/auth/assets/simple-icons
 tar -xzf %{SOURCE1} --strip-components=1 -C mobile/apps/auth/assets/simple-icons
+sed -i 's/-Wall -Werror/-Wall -Wno-error/g' mobile/apps/auth/linux/CMakeLists.txt
 
 %build
 mkdir -p "%{_builddir}/.bin"
